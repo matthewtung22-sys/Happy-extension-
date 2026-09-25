@@ -1,16 +1,17 @@
 package eu.kanade.tachiyomi.animeextension.zh.hanime1
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
-import eu.kanade.tachiyomi.animesource.model.Hoster
+import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
+import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.AnimeHttpLegacySource
 import okhttp3.Request
 import okhttp3.Response
-import org.jsoup.nodes.Document
-import org.jsoup.nodes.Element
+import org.jsoup.Jsoup
 
-class HentaiCityCustom : ParsedAnimeHttpSource() {
+class HentaiCityCustom : AnimeHttpLegacySource() {
 
     override val name = "HentaiCityCustom"
     override val baseUrl = "https://hanime1.me"
@@ -18,51 +19,84 @@ class HentaiCityCustom : ParsedAnimeHttpSource() {
     override val supportsLatest = true
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int): Request = Request.Builder().url("$baseUrl/search?page=$page").build()
-    override fun popularAnimeSelector(): String = "div.card"
-    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
-        title = element.select("div.card-title").text()
-        url = element.select("a").attr("href").removePrefix(baseUrl)
-        thumbnail_url = element.select("img").attr("src")
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/search?page=$page", headers)
+
+    override fun popularAnimeParse(response: Response): AnimesPage {
+        val document = Jsoup.parse(response.body.string())
+        val animeList = document.select("div.card, div.home-rows-videos-div").map { element ->
+            SAnime.create().apply {
+                title = element.select("div.card-title, div.home-rows-videos-title").text().trim()
+                val href = element.select("a").attr("href")
+                url = if (href.startsWith("http")) href else "$baseUrl$href"
+                thumbnail_url = element.select("img").attr("src")
+            }
+        }
+        val hasNextPage = document.select("a.page-link[rel=next]").isNotEmpty()
+        return AnimesPage(animeList, hasNextPage)
     }
-    override fun popularAnimeNextPageSelector(): String? = "a.page-link[rel=next]"
 
     // =============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int): Request = Request.Builder().url("$baseUrl/latest?page=$page").build()
-    override fun latestUpdatesSelector(): String = popularAnimeSelector()
-    override fun latestUpdatesFromElement(element: Element): SAnime = popularAnimeFromElement(element)
-    override fun latestUpdatesNextPageSelector(): String? = popularAnimeNextPageSelector()
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/search?genre=latest&page=$page", headers)
+
+    override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     // =============================== Search ===============================
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request =
-        Request.Builder().url("$baseUrl/search?query=$query&page=$page").build()
-    override fun searchAnimeSelector(): String = popularAnimeSelector()
-    override fun searchAnimeFromElement(element: Element): SAnime = popularAnimeFromElement(element)
-    override fun searchAnimeNextPageSelector(): String? = popularAnimeNextPageSelector()
+        GET("$baseUrl/search?query=$query&page=$page", headers)
+
+    override fun searchAnimeParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     // =========================== Anime Details ============================
-    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
-        title = document.select("h1").text()
-        description = document.select("div.description").text()
+    override fun animeDetailsParse(response: Response): SAnime {
+        val document = Jsoup.parse(response.body.string())
+        return SAnime.create().apply {
+            title = document.select("h3.video-details-title, h1").text().trim()
+            description = document.select("div.video-details-description").text().trim()
+            genre = document.select("div.single-video-tag a").joinToString { it.text() }
+        }
     }
 
     // ============================== Episodes ==============================
-    override fun episodeListSelector(): String = "div.episode-item"
-    override fun episodeFromElement(element: Element): SEpisode = SEpisode.create().apply {
-        name = element.text()
-        url = element.select("a").attr("href").removePrefix(baseUrl)
-    }
-    override fun episodeNextPageSelector(): String? = null
+    override fun episodeListParse(response: Response): List<SEpisode> {
+        val document = Jsoup.parse(response.body.string())
+        val episodes = mutableListOf<SEpisode>()
+        val epElements = document.select("div.playlist-scroll div.card, div.related-watch-wrap")
 
-    // ============================== Seasons ===============================
-    override fun seasonListSelector(): String = "div.episode-item"
-    override fun seasonFromElement(element: Element): SAnime = SAnime.create().apply {
-        title = element.text()
-        url = element.select("a").attr("href").removePrefix(baseUrl)
+        if (epElements.isNotEmpty()) {
+            epElements.forEachIndexed { index, element ->
+                episodes.add(
+                    SEpisode.create().apply {
+                        name = element.select("div.card-title, div.related-watch-title").text().trim().ifEmpty { "Episode ${index + 1}" }
+                        val href = element.select("a").attr("href")
+                        url = if (href.startsWith("http")) href else "$baseUrl$href"
+                        episode_number = (index + 1).toFloat()
+                    }
+                )
+            }
+        } else {
+            episodes.add(
+                SEpisode.create().apply {
+                    name = "Full Episode"
+                    url = response.request.url.toString()
+                    episode_number = 1f
+                }
+            )
+        }
+        return episodes
     }
-    override fun seasonNextPageSelector(): String? = null
 
-    // =========================== Hosters & Videos =========================
-    override fun hosterListParse(response: Response): List<Hoster> = emptyList()
-    override fun videoUrlParse(response: Response): String = ""
+    // ============================ Video Links =============================
+    override fun videoListParse(response: Response): List<Video> {
+        val document = Jsoup.parse(response.body.string())
+        val videos = mutableListOf<Video>()
+
+        document.select("video source").forEach { source ->
+            val videoUrl = source.attr("src")
+            val quality = source.attr("size").let { if (it.isNotEmpty()) "${it}p" else "Default" }
+            if (videoUrl.isNotEmpty()) {
+                videos.add(Video(videoUrl, quality, videoUrl, headers))
+            }
+        }
+        return videos
+    }
 }
