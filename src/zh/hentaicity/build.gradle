@@ -1,0 +1,6 @@
+ext.class_name = "HentaiCity"
+ext.package_name = "hentaicity"
+ext.source_title = "Hentai City"
+ext.is_nsfw = true
+
+apply from: "$rootProject.projectDir/common.gradle"
