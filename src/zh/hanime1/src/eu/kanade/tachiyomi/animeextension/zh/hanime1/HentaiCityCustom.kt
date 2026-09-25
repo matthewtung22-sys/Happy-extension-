@@ -1,10 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.zh.hanime1
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
-import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
-import eu.kanade.tachiyomi.animesource.model.SEpisode
-import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import okhttp3.Request
 import okhttp3.Response
@@ -23,7 +21,7 @@ class HentaiCityCustom : ParsedAnimeHttpSource() {
     override fun popularAnimeSelector(): String = "div.card"
     override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
         title = element.select("div.card-title").text()
-        setUrlWithoutBaseUrl(element.select("a").attr("href"))
+        url = element.select("a").attr("href").removePrefix(baseUrl)
         thumbnail_url = element.select("img").attr("src")
     }
     override fun popularAnimeNextPageSelector(): String = "a.page-link[rel=next]"
@@ -47,19 +45,14 @@ class HentaiCityCustom : ParsedAnimeHttpSource() {
         description = document.select("div.description").text()
     }
 
-    // Episodes
-    override fun episodeListSelector(): String = "div.episode-item"
-    override fun episodeFromElement(element: Element): SEpisode = SEpisode.create().apply {
-        name = element.text()
-        setUrlWithoutBaseUrl(element.select("a").attr("href"))
+    // Season list overrides expected by your core source
+    override fun seasonListSelector(): String = "div.episode-item"
+    override fun seasonFromElement(element: Element): SAnime = SAnime.create().apply {
+        title = element.text()
+        url = element.select("a").attr("href").removePrefix(baseUrl)
     }
 
-    // Video extractors
-    override fun videoListSelector(): String = "source"
-    override fun videoFromElement(element: Element): Video = Video(
-        element.attr("src"),
-        "Default",
-        element.attr("src")
-    )
-    override fun videoUrlParse(document: Document): String = ""
+    // Hoster & Video overrides
+    override fun hosterListParse(response: Response): List<Hoster> = emptyList()
+    override fun videoUrlParse(response: Response): String = ""
 }
