@@ -9,10 +9,10 @@
     "nsfw": 1,
     "sources": [
       {
-        "name": "HentaiCityCustom",
-        "lang": "zh",
-        "id": "2093821763010545795",
-        "baseUrl": "https://hanime1.me",
+        "name": "Hentai City",
+        "lang": "all",
+        "id": "419680141141017761",
+        "baseUrl": "https://www.hentaicity.com",
         "versionId": 1
       }
     ]
