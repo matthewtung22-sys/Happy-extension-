@@ -2,7 +2,8 @@ package eu.kanade.tachiyomi.animeextension.zh.hanime1
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
-import eu.kanade.tachiyomi.animesource.model.Hoster
+import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import okhttp3.Request
 import okhttp3.Response
@@ -45,14 +46,15 @@ class HentaiCityCustom : ParsedAnimeHttpSource() {
         description = document.select("div.description").text()
     }
 
-    // Season list overrides expected by your core source
-    override fun seasonListSelector(): String = "div.episode-item"
-    override fun seasonFromElement(element: Element): SAnime = SAnime.create().apply {
-        title = element.text()
+    // Episodes
+    override fun episodeListSelector(): String = "div.episode-item"
+    override fun episodeFromElement(element: Element): SEpisode = SEpisode.create().apply {
+        name = element.text()
         url = element.select("a").attr("href").removePrefix(baseUrl)
     }
 
-    // Hoster & Video overrides
-    override fun hosterListParse(response: Response): List<Hoster> = emptyList()
-    override fun videoUrlParse(response: Response): String = ""
+    // Videos
+    override fun videoListSelector(): String = "source"
+    override fun videoFromElement(element: Element): Video = Video(element.attr("src"), "Default", element.attr("src"))
+    override fun videoUrlParse(document: Document): String = ""
 }
