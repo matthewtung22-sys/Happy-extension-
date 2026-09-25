@@ -55,6 +55,10 @@ class HentaiCityCustom : ParsedAnimeHttpSource() {
 
     // Videos
     override fun videoListSelector(): String = "source"
-    override fun videoFromElement(element: Element): Video = Video(element.attr("src"), "Default", element.attr("src"))
+    override fun videoFromElement(element: Element): Video = Video(
+        element.attr("src"),
+        "Default",
+        element.attr("src")
+    )
     override fun videoUrlParse(document: Document): String = ""
 }
