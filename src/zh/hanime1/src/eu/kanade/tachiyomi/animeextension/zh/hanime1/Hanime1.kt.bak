@@ -1,0 +1,195 @@
+package eu.kanade.tachiyomi.animeextension.zh.hanime1
+
+import eu.kanade.tachiyomi.animesource.model.AnimeFilter
+import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.SAnime
+import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.absUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Request
+import okhttp3.Response
+
+class Hanime1 : AnimeHttpSource() {
+
+    override val name = "Hanime1"
+
+    override val baseUrl = "https://hanime1.me"
+
+    override val lang = "zh"
+
+    override val supportsLatest = true
+
+    // ============================== Popular / Latest ==============================
+
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/search?page=$page", headers)
+
+    override fun popularAnimeParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val animes = document.select("div.search-doujin-videos-container div.caption").map { element ->
+            SAnime.create().apply {
+                title = element.selectFirst("div.card-mobile-title")?.text() ?: ""
+                setUrlWithoutDomain(element.selectFirst("a")!!.absUrl("href"))
+                thumbnail_url = element.selectFirst("img")?.attr("abs:src")
+            }
+        }
+        val hasNextPage = document.selectFirst("ul.pagination li.active + li:not(.disabled)") != null
+        return AnimesPage(animes, hasNextPage)
+    }
+
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/search?s=latest&page=$page", headers)
+
+    override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
+
+    // ============================== Search ==============================
+
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        val url = "$baseUrl/search".toHttpUrl().newBuilder()
+
+        if (query.isNotEmpty()) {
+            url.addQueryParameter("query", query)
+        }
+        url.addQueryParameter("page", page.toString())
+
+        filters.forEach { filter ->
+            when (filter) {
+                is QueryFilter -> {
+                    if (filter.selected.isNotEmpty()) {
+                        url.addQueryParameter(filter.key, filter.selected)
+                    }
+                }
+                is TagFilter -> {
+                    if (filter.state) {
+                        url.addQueryParameter(filter.key, "1")
+                    }
+                }
+                is DateFilter -> {
+                    filter.state.forEach { timeFilter ->
+                        if (timeFilter.selected.isNotEmpty()) {
+                            url.addQueryParameter("year_month", timeFilter.selected)
+                        }
+                    }
+                }
+                else -> {}
+            }
+        }
+
+        return GET(url.build().toString(), headers)
+    }
+
+    override fun searchAnimeParse(response: Response): AnimesPage = popularAnimeParse(response)
+
+    // ============================== Details & Episodes ==============================
+
+    override fun animeDetailsParse(response: Response): SAnime {
+        val document = response.asJsoup()
+        return SAnime.create().apply {
+            title = document.selectFirst("h3.video-title")?.text() ?: ""
+            description = document.selectFirst("div.video-description")?.text()
+            genre = document.select("div.single-video-tag a").joinToString { it.text() }
+            status = SAnime.COMPLETED
+        }
+    }
+
+    override fun episodeListParse(response: Response): List<SEpisode> {
+        val document = response.asJsoup()
+        val episode = SEpisode.create().apply {
+            name = document.selectFirst("h3.video-title")?.text() ?: "Episode 1"
+            setUrlWithoutDomain(response.request.url.toString())
+        }
+        return listOf(episode)
+    }
+
+    override fun videoListParse(response: Response): List<Video> {
+        val document = response.asJsoup()
+        val videoUrl = document.selectFirst("video source")?.attr("abs:src") ?: ""
+        return if (videoUrl.isNotEmpty()) {
+            listOf(Video(videoUrl, "720p", videoUrl))
+        } else {
+            emptyList()
+        }
+    }
+
+    // ============================== Filters ==============================
+
+    override fun getFilterList() = AnimeFilterList(
+        GenreFilter(arrayOf("全部", "裏番", "泡面番", "Motion Anime")),
+        SortFilter(arrayOf("最新上市", "最新上傳", "本日排行", "本週排行", "本月排行")),
+        BroadMatchFilter(),
+        DateFilter(
+            YearFilter(arrayOf("全部年份", "2026", "2025", "2024")),
+            MonthFilter(arrayOf("全部月份", "1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月")),
+        ),
+    )
+}
+
+// ============================== Filter Definitions ==============================
+
+open class QueryFilter(name: String, val key: String, values: Array<String>) : AnimeFilter.Select<String>(name, values) {
+    val selected: String
+        get() = if (state == 0) {
+            ""
+        } else {
+            values[state]
+        }
+}
+
+open class TagFilter(val key: String, name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
+
+class GenreFilter(values: Array<String>) :
+    QueryFilter(
+        "影片類型",
+        "genre",
+        values.ifEmpty { arrayOf("全部", "裏番", "泡面番", "Motion Anime") },
+    )
+
+class SortFilter(values: Array<String>) :
+    QueryFilter(
+        "排序方式",
+        "sort",
+        values.ifEmpty { arrayOf("最新上市", "最新上傳", "本日排行", "本週排行", "本月排行") },
+    )
+
+object HotFilter : TagFilter("sort", "本週排行", true)
+
+open class TimeFilter(
+    name: String,
+    private val unit: String,
+    values: Array<String>,
+    private val orderIndex: Int = 0,
+    private val hyphen: String = "+",
+    private val suffix: String = "",
+) : AnimeFilter.Select<String>(name, values),
+    Comparable<TimeFilter> {
+    val selected: String
+        get() = if (state == 0) {
+            ""
+        } else {
+            "${values[state].replace(unit, "").trim()}$hyphen$unit$suffix"
+        }
+
+    override fun compareTo(other: TimeFilter): Int = orderIndex - other.orderIndex
+}
+
+class YearFilter(values: Array<String>) :
+    TimeFilter(
+        "發佈年份",
+        "年",
+        values.ifEmpty { arrayOf("全部年份") },
+        orderIndex = 0,
+        suffix = "+",
+    )
+
+class MonthFilter(values: Array<String>) : TimeFilter("發佈月份", "月", values.ifEmpty { arrayOf("全部月份") }, orderIndex = 1)
+
+class DateFilter(yearFilter: YearFilter, monthFilter: MonthFilter) : AnimeFilter.Group<TimeFilter>("發佈日期", listOf(yearFilter, monthFilter))
+
+class CategoryFilter(name: String, filters: List<TagFilter>) : AnimeFilter.Group<TagFilter>(name, filters)
+
+class BroadMatchFilter : TagFilter("broad", "廣泛配對")
+
+class TagsFilter(filters: List<AnimeFilter<out Any>>) : AnimeFilter.Group<AnimeFilter<out Any>>("標籤", filters)
