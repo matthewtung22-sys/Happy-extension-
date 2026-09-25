@@ -17,7 +17,7 @@ class HentaiCityCustom : ParsedAnimeHttpSource() {
     override val lang = "zh"
     override val supportsLatest = true
 
-    // Popular Anime
+    // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int): Request = Request.Builder().url("$baseUrl/search?page=$page").build()
     override fun popularAnimeSelector(): String = "div.card"
     override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
@@ -27,26 +27,26 @@ class HentaiCityCustom : ParsedAnimeHttpSource() {
     }
     override fun popularAnimeNextPageSelector(): String? = "a.page-link[rel=next]"
 
-    // Latest Updates
+    // =============================== Latest ===============================
     override fun latestUpdatesRequest(page: Int): Request = Request.Builder().url("$baseUrl/latest?page=$page").build()
     override fun latestUpdatesSelector(): String = popularAnimeSelector()
     override fun latestUpdatesFromElement(element: Element): SAnime = popularAnimeFromElement(element)
     override fun latestUpdatesNextPageSelector(): String? = popularAnimeNextPageSelector()
 
-    // Search Anime
+    // =============================== Search ===============================
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request =
         Request.Builder().url("$baseUrl/search?query=$query&page=$page").build()
     override fun searchAnimeSelector(): String = popularAnimeSelector()
     override fun searchAnimeFromElement(element: Element): SAnime = popularAnimeFromElement(element)
     override fun searchAnimeNextPageSelector(): String? = popularAnimeNextPageSelector()
 
-    // Details Parsing
+    // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
         title = document.select("h1").text()
         description = document.select("div.description").text()
     }
 
-    // Episode Overrides
+    // ============================== Episodes ==============================
     override fun episodeListSelector(): String = "div.episode-item"
     override fun episodeFromElement(element: Element): SEpisode = SEpisode.create().apply {
         name = element.text()
@@ -54,7 +54,7 @@ class HentaiCityCustom : ParsedAnimeHttpSource() {
     }
     override fun episodeNextPageSelector(): String? = null
 
-    // Season Overrides
+    // ============================== Seasons ===============================
     override fun seasonListSelector(): String = "div.episode-item"
     override fun seasonFromElement(element: Element): SAnime = SAnime.create().apply {
         title = element.text()
@@ -62,7 +62,7 @@ class HentaiCityCustom : ParsedAnimeHttpSource() {
     }
     override fun seasonNextPageSelector(): String? = null
 
-    // Hoster & Video Overrides
+    // =========================== Hosters & Videos =========================
     override fun hosterListParse(response: Response): List<Hoster> = emptyList()
     override fun videoUrlParse(response: Response): String = ""
 }
